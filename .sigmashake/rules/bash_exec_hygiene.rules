@@ -1,0 +1,56 @@
+# bash_exec_hygiene.rules — Shell command hygiene for AI agents.
+# Technology: bash | Capability: exec
+# Covers: git add -A, stderr redirect, global npm install, background processes.
+
+rule no-git-add-all {
+  enabled true
+  priority 90
+  severity error
+  DENY execution
+  IF command CONTAINS "git add -A"
+  OR command CONTAINS "git add ."
+  OR command REGEX "git add --all\\b"
+  MESSAGE "Avoid staging all files at once. Use 'git add <specific-files>' to stage only the files you intend to commit — this prevents accidentally committing secrets, binaries, or debug artifacts."
+}
+
+rule no-stderr-redirect {
+  enabled true
+  priority 85
+  severity error
+  DENY execution
+  IF command CONTAINS "2>&1"
+  MESSAGE "Merging stderr into stdout (2>&1) hides errors and makes debugging harder. Handle stdout and stderr separately so failures are visible."
+}
+
+rule no-npm-install-global {
+  enabled true
+  priority 80
+  severity warning
+  ASK execution
+  IF command REGEX "npm (install|i) (-g|--global)"
+  OR command REGEX "npm (install|i) .* (-g|--global)"
+  MESSAGE "Global npm installs modify the system environment outside the project and can cause version conflicts. Use a local install or npx instead."
+  PROMPT "Can this be installed locally (npm install --save-dev) or run without installation (npx)? Global installs affect all projects on the machine."
+}
+
+rule ask-env-override {
+  enabled true
+  priority 75
+  severity warning
+  ASK execution
+  IF command REGEX "^[A-Z_]+=\\S+ "
+  OR command REGEX " [A-Z_]+=\\S+ [a-z]"
+  MESSAGE "Inline environment variable override detected. Verify this doesn't accidentally override a production or security-sensitive variable."
+  PROMPT "Is this environment override intentional and scoped to this command only? Check that it doesn't shadow a required configuration value."
+}
+
+rule log-background-process {
+  enabled true
+  priority 50
+  severity info
+  LOG execution
+  IF command REGEX "\\s+&\\s*$"
+  OR command STARTS_WITH "nohup "
+  OR command CONTAINS " & disown"
+  MESSAGE "Background process started. Ensure the process is tracked and can be stopped cleanly — background jobs are easy to lose track of."
+}

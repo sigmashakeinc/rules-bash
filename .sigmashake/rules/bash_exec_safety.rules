@@ -1,0 +1,60 @@
+# bash_exec_safety.rules — Block dangerous shell commands.
+# Technology: bash | Capability: exec
+# Covers: rm -rf, chmod 777, curl-pipe-shell, sudo, kill -9.
+
+rule no-rm-rf {
+  enabled true
+  priority 100
+  severity error
+  DENY execution
+  IF command STARTS_WITH "rm -rf"
+  OR command STARTS_WITH "rm -r "
+  OR command REGEX "^[^'\"]*rm -rf"
+  OR command REGEX "^[^'\"]*rm -r /"
+  MESSAGE "Recursive delete is blocked. Use 'trash' or 'rm -i' for interactive confirmation, or specify exact files to remove."
+}
+
+rule no-chmod-777 {
+  enabled true
+  priority 95
+  severity error
+  DENY execution
+  IF command CONTAINS "chmod 777"
+  OR command CONTAINS "chmod -R 777"
+  OR command CONTAINS "chmod a+rwx"
+  MESSAGE "chmod 777 grants world-writable permissions and is a security risk. Use the minimum permissions needed (e.g., 755 for executables, 644 for files)."
+}
+
+rule no-curl-pipe-shell {
+  enabled true
+  priority 95
+  severity error
+  DENY execution
+  IF command REGEX "curl[^|]+\\|\\s*(sh|bash|zsh|dash)"
+  OR command REGEX "wget[^|]+\\|\\s*(sh|bash|zsh|dash)"
+  OR command REGEX "curl[^|]+\\|\\s*sudo\\s+(sh|bash)"
+  MESSAGE "Piping curl/wget directly into a shell is a remote code execution risk. Download the script first, inspect it, then run it explicitly."
+}
+
+rule ask-sudo {
+  enabled true
+  priority 90
+  severity warning
+  ASK execution
+  IF command STARTS_WITH "sudo "
+  OR command CONTAINS " sudo "
+  MESSAGE "sudo command detected. Escalating privileges can make changes that are hard to reverse and affect the entire system."
+  PROMPT "Is elevated privilege needed here? Consider whether the task can be done without sudo, or use a more specific permission."
+}
+
+rule no-kill-9 {
+  enabled true
+  priority 70
+  severity warning
+  ASK execution
+  IF command CONTAINS "kill -9"
+  OR command CONTAINS "kill -KILL"
+  OR command CONTAINS "killall -9"
+  MESSAGE "SIGKILL (-9) bypasses graceful shutdown and may leave resources in a dirty state. Try SIGTERM first: kill <pid> or kill -15 <pid>."
+  PROMPT "Has SIGTERM been tried first? Use kill -9 only if the process is unresponsive to graceful termination."
+}

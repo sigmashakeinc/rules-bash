@@ -1,0 +1,56 @@
+# bash_write_safety.rules
+# Technology: bash | Capability: write
+
+rule bash-eval-injection {
+  enabled true
+  priority 100
+  severity error
+  DENY write
+  IF path GLOB "**/*.sh" AND content CONTAINS "eval \\$"
+  MESSAGE "Detected 'eval' used with a variable. This is a severe command injection vulnerability. User-controlled input passed to 'eval' can execute arbitrary commands with the script's privileges. Avoid 'eval' entirely. If dynamic execution is unavoidable, use 'case' statements, 'declare', or carefully sanitize input to an extremely restrictive whitelist, which is often impractical."
+}
+
+rule bash-deprecated-backticks {
+  enabled true
+  priority 90
+  severity warning
+  ASK write
+  IF path GLOB "**/*.sh" AND content CONTAINS "`"
+  MESSAGE "Detected deprecated backticks for command substitution. While functional, '`command`' is harder to nest and can be confused with single quotes. The modern and recommended syntax is '$(command)'. Please update to use the '$()' form for clarity and consistency, as recommended by the Google Shell Style Guide."
+}
+
+rule bash-unquoted-for-loop-variable {
+  enabled true
+  priority 85
+  severity error
+  DENY write
+  IF path GLOB "**/*.sh" AND content CONTAINS "for [a-zA-Z0-9_]+ in \\$[a-zA-Z0-9_]+"
+  MESSAGE "Detected an unquoted variable in a 'for' loop iteration (e.g., 'for f in $FILES'). This can lead to word splitting and globbing, causing the loop to iterate over unintended items or execute unexpected commands. Always quote variables in 'for' loops: 'for f in \"$FILES\"'. For robust array handling, consider 'read -r -d '' -a array < <(printf '%s\\0' \"$FILES\")'."
+}
+
+rule bash-insecure-mktemp-no-template {
+  enabled true
+  priority 95
+  severity error
+  DENY write
+  IF path GLOB "**/*.sh" AND content CONTAINS "mktemp\\s+(/tmp/|/var/tmp/)[a-zA-Z0-9_.-]+"
+  MESSAGE "Detected 'mktemp' usage with a fixed path or without a secure template (e.g., 'mktemp /tmp/myfile'). This can create temporary files or directories in an insecure manner, leading to race conditions, symlink attacks, or information disclosure. Always use a template with 'XXXXXX' (e.g., 'mktemp /tmp/myapp.XXXXXX') and consider '-d' for directories. Ensure the template is unique enough."
+}
+
+rule bash-echo-variable-output {
+  enabled true
+  priority 80
+  severity warning
+  ASK write
+  IF path GLOB "**/*.sh" AND content CONTAINS "echo\\s+\\$[a-zA-Z0-9_]+"
+  MESSAGE "Detected 'echo' used to output a variable. 'echo' can misinterpret options (like '-e' or '-n') or backslash escapes within the variable's content, leading to unexpected output or security issues if piped. The 'printf' command is safer and more portable for printing variable content: 'printf %s\\n \"$VAR\"', as recommended by the Google Shell Style Guide."
+}
+
+rule bash-sudo-arbitrary-shell {
+  enabled true
+  priority 98
+  severity error
+  DENY write
+  IF path GLOB "**/*.sh" AND content CONTAINS "sudo\\s+(bash|sh|/bin/bash|/bin/sh)"
+  MESSAGE "Detected 'sudo' used to invoke a generic shell (e.g., 'sudo bash'). This is highly dangerous as it grants root privileges to an interactive shell or an arbitrary script, bypassing 'sudoers' restrictions and potentially allowing arbitrary command execution. Restrict 'sudo' to specific, well-defined commands with explicit arguments. Avoid granting full shell access via 'sudo'."
+}
