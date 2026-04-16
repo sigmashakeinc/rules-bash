@@ -14,7 +14,7 @@ rule bash-deprecated-backticks {
   enabled true
   priority 90
   severity warning
-  ASK write
+  LOG write
   IF path GLOB "**/*.sh" AND content CONTAINS "`"
   MESSAGE "Detected deprecated backticks for command substitution. While functional, '`command`' is harder to nest and can be confused with single quotes. The modern and recommended syntax is '$(command)'. Please update to use the '$()' form for clarity and consistency, as recommended by the Google Shell Style Guide."
 }
@@ -41,7 +41,7 @@ rule bash-echo-variable-output {
   enabled true
   priority 80
   severity warning
-  ASK write
+  LOG write
   IF path GLOB "**/*.sh" AND content CONTAINS "echo\\s+\\$[a-zA-Z0-9_]+"
   MESSAGE "Detected 'echo' used to output a variable. 'echo' can misinterpret options (like '-e' or '-n') or backslash escapes within the variable's content, leading to unexpected output or security issues if piped. The 'printf' command is safer and more portable for printing variable content: 'printf %s\\n \"$VAR\"', as recommended by the Google Shell Style Guide."
 }

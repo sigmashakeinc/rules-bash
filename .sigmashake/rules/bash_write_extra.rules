@@ -5,10 +5,9 @@ rule bash-warn-missing-strict-mode {
   enabled true
   priority 80
   severity warning
-  ASK write
+  LOG write
   IF path GLOB "**/*.sh" AND content NOT CONTAINS "set -e" AND content NOT CONTAINS "set -euo pipefail"
   MESSAGE "Bash scripts should generally use 'set -e' or 'set -euo pipefail' to exit immediately if a command fails, preventing cascading errors."
-  PROMPT "Are you sure you want to omit strict error handling (set -e)? Scripts without this may continue running in an unpredictable state after a failure."
 }
 
 rule bash-warn-unquoted-rm-rf {

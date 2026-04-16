@@ -37,11 +37,10 @@ rule ask-env-override {
   enabled true
   priority 75
   severity warning
-  ASK execution
+  LOG execution
   IF command REGEX "^[A-Z_]+=\\S+ "
   OR command REGEX " [A-Z_]+=\\S+ [a-z]"
   MESSAGE "Inline environment variable override detected. Verify this doesn't accidentally override a production or security-sensitive variable."
-  PROMPT "Is this environment override intentional and scoped to this command only? Check that it doesn't shadow a required configuration value."
 }
 
 rule log-background-process {
