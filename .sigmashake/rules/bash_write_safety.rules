@@ -6,8 +6,8 @@ rule bash-eval-injection {
   priority 100
   severity error
   DENY write
-  IF path GLOB "**/*.sh" AND content CONTAINS "eval \\$"
-  MESSAGE "Detected 'eval' used with a variable. This is a severe command injection vulnerability. User-controlled input passed to 'eval' can execute arbitrary commands with the script's privileges. Avoid 'eval' entirely. If dynamic execution is unavoidable, use 'case' statements, 'declare', or carefully sanitize input to an extremely restrictive whitelist, which is often impractical."
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "\\beval\\s+[\"']?\\$"
+  MESSAGE "RISK: 'eval' on a variable is a command-injection sink — attacker-controlled input runs with the script's privileges. FIX: avoid 'eval'; use a 'case' dispatch, an associative-array lookup, or arrays (\"${cmd[@]}\") to build commands without re-parsing."
 }
 
 rule bash-deprecated-backticks {
@@ -16,7 +16,7 @@ rule bash-deprecated-backticks {
   severity warning
   LOG write
   IF path GLOB "**/*.sh" AND content CONTAINS "`"
-  MESSAGE "Detected deprecated backticks for command substitution. While functional, '`command`' is harder to nest and can be confused with single quotes. The modern and recommended syntax is '$(command)'. Please update to use the '$()' form for clarity and consistency, as recommended by the Google Shell Style Guide."
+  MESSAGE "RISK: backtick command substitution is hard to nest, easy to confuse with quotes, and discouraged by the Google Shell Style Guide. FIX: use the modern '$(command)' form, which nests cleanly and is unambiguous."
 }
 
 rule bash-unquoted-for-loop-variable {
@@ -24,8 +24,8 @@ rule bash-unquoted-for-loop-variable {
   priority 85
   severity error
   DENY write
-  IF path GLOB "**/*.sh" AND content CONTAINS "for [a-zA-Z0-9_]+ in \\$[a-zA-Z0-9_]+"
-  MESSAGE "Detected an unquoted variable in a 'for' loop iteration (e.g., 'for f in $FILES'). This can lead to word splitting and globbing, causing the loop to iterate over unintended items or execute unexpected commands. Always quote variables in 'for' loops: 'for f in \"$FILES\"'. For robust array handling, consider 'read -r -d '' -a array < <(printf '%s\\0' \"$FILES\")'."
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "\\bfor\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s+in\\s+\\$[a-zA-Z_]"
+  MESSAGE "RISK: 'for f in $VAR' triggers word-splitting and pathname expansion, so the loop iterates over unintended tokens or matched files (ShellCheck SC2066/SC2086). FIX: quote ('for f in \"$VAR\"') or, for lists, iterate over an array with 'for f in \"${arr[@]}\"'."
 }
 
 rule bash-insecure-mktemp-no-template {
@@ -33,8 +33,8 @@ rule bash-insecure-mktemp-no-template {
   priority 95
   severity error
   DENY write
-  IF path GLOB "**/*.sh" AND content CONTAINS "mktemp\\s+(/tmp/|/var/tmp/)[a-zA-Z0-9_.-]+"
-  MESSAGE "Detected 'mktemp' usage with a fixed path or without a secure template (e.g., 'mktemp /tmp/myfile'). This can create temporary files or directories in an insecure manner, leading to race conditions, symlink attacks, or information disclosure. Always use a template with 'XXXXXX' (e.g., 'mktemp /tmp/myapp.XXXXXX') and consider '-d' for directories. Ensure the template is unique enough."
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "\\bmktemp\\s+(-[dt]\\s+)?(/tmp/|/var/tmp/)[a-zA-Z0-9_.-]+\\s*$"
+  MESSAGE "RISK: 'mktemp /tmp/fixed-name' (no XXXXXX template) is predictable and vulnerable to symlink/TOCTOU races on shared systems. FIX: pass a template with at least six trailing X's, e.g. 'mktemp /tmp/myapp.XXXXXXXX' or 'mktemp -d -t myapp.XXXXXXXX'."
 }
 
 rule bash-echo-variable-output {
@@ -42,8 +42,8 @@ rule bash-echo-variable-output {
   priority 80
   severity warning
   LOG write
-  IF path GLOB "**/*.sh" AND content CONTAINS "echo\\s+\\$[a-zA-Z0-9_]+"
-  MESSAGE "Detected 'echo' used to output a variable. 'echo' can misinterpret options (like '-e' or '-n') or backslash escapes within the variable's content, leading to unexpected output or security issues if piped. The 'printf' command is safer and more portable for printing variable content: 'printf %s\\n \"$VAR\"', as recommended by the Google Shell Style Guide."
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "\\becho\\s+[\"']?-?\\$[a-zA-Z_]"
+  MESSAGE "RISK: 'echo $VAR' misinterprets leading dashes as flags and processes backslash escapes inconsistently across shells (Google Shell Style Guide). FIX: use 'printf %s\\n \"$VAR\"' for predictable, portable output."
 }
 
 rule bash-sudo-arbitrary-shell {
@@ -51,6 +51,60 @@ rule bash-sudo-arbitrary-shell {
   priority 98
   severity error
   DENY write
-  IF path GLOB "**/*.sh" AND content CONTAINS "sudo\\s+(bash|sh|/bin/bash|/bin/sh)"
-  MESSAGE "Detected 'sudo' used to invoke a generic shell (e.g., 'sudo bash'). This is highly dangerous as it grants root privileges to an interactive shell or an arbitrary script, bypassing 'sudoers' restrictions and potentially allowing arbitrary command execution. Restrict 'sudo' to specific, well-defined commands with explicit arguments. Avoid granting full shell access via 'sudo'."
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "\\bsudo\\s+(-[A-Za-z]+\\s+)*(bash|sh|zsh|/bin/bash|/bin/sh|/bin/zsh)\\b"
+  MESSAGE "RISK: 'sudo bash' (or 'sudo sh') grants root to an interactive/arbitrary shell, bypassing any sudoers command restrictions. FIX: invoke the specific binary with explicit arguments under sudo, and pin the allowed commands in /etc/sudoers."
+}
+
+rule bash-curl-insecure-tls {
+  enabled true
+  priority 95
+  severity error
+  DENY write
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "\\b(curl|wget)\\b[^#\\n]*\\s(-k|--insecure|--no-check-certificate)\\b"
+  MESSAGE "RISK: disabling TLS verification (curl -k / wget --no-check-certificate) enables MITM tampering — exactly the supply-chain vector behind incidents like xz CVE-2024-3094 and curl CVE-2024-7264. FIX: remove the flag; if a custom CA is needed, pass it explicitly with '--cacert /path/to/ca.pem'."
+}
+
+rule bash-source-variable-path {
+  enabled true
+  priority 95
+  severity error
+  DENY write
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "^\\s*(source|\\.)\\s+[\"']?\\$[a-zA-Z_]"
+  MESSAGE "RISK: sourcing a variable path ('source $FILE') loads arbitrary code into the current shell — attacker control of the variable means RCE with the script's privileges. FIX: hard-code the path, validate against a strict allowlist before sourcing, and always quote ('source \"$FILE\"')."
+}
+
+rule bash-rm-rf-trailing-slash-var {
+  enabled true
+  priority 100
+  severity error
+  DENY write
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "\\brm\\s+-[rRfF]+[a-zA-Z]*\\s+[\"']?\\$\\{?[a-zA-Z_][a-zA-Z0-9_]*\\}?/"
+  MESSAGE "RISK: 'rm -rf \"$dir/\"' wipes the filesystem root if $dir is empty or unset (ShellCheck SC2115). FIX: assert non-empty first with '${dir:?dir is required}' so the expansion aborts instead of resolving to '/'."
+}
+
+rule bash-local-masks-exit-status {
+  enabled true
+  priority 80
+  severity warning
+  LOG write
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "^\\s*(local|declare|readonly|export)\\s+[a-zA-Z_][a-zA-Z0-9_]*=\\$\\("
+  MESSAGE "RISK: 'local x=$(cmd)' always returns 0 because 'local' itself succeeds, silently swallowing the subshell's failure even under 'set -e' (ShellCheck SC2155). FIX: split the declaration: 'local x; x=$(cmd)' so the assignment exit status propagates."
+}
+
+rule bash-cd-without-check {
+  enabled true
+  priority 70
+  severity warning
+  LOG write
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "^\\s*cd\\s+[^|&;\\n]+$"
+  MESSAGE "RISK: an unchecked 'cd' that fails leaves the script running in the wrong directory — subsequent 'rm', 'cp', or build commands then act on the parent's cwd (ShellCheck SC2164). FIX: chain failure handling: 'cd \"$dir\" || exit 1', or enable 'set -e' and quote the argument."
+}
+
+rule bash-heredoc-unquoted-delimiter {
+  enabled true
+  priority 75
+  severity warning
+  LOG write
+  IF path GLOB "**/*.sh" AND content LINE_REGEX "<<-?\\s*[A-Za-z_][A-Za-z0-9_]*\\s*$"
+  MESSAGE "RISK: an unquoted heredoc delimiter ('<<EOF') expands $vars and $(cmd) inside the body — when the body contains untrusted text this becomes command injection. FIX: quote the opener ('<<\\'EOF\\'' or '<<\"EOF\"') whenever the body is meant to be literal."
 }
